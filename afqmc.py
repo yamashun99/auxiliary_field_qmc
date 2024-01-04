@@ -20,8 +20,8 @@ class AFQMC:
         # グリーン関数の初期化（アップスピンとダウンスピンの両方）
         self.G_up = [None for _ in range(self.L)]
         self.G_dn = [None for _ in range(self.L)]
-        self.G_up[self.L - 1] = self.G(L, 1)
-        self.G_dn[self.L - 1] = self.G(L, -1)
+        self.G_up[self.L - 1] = self.G(L - 1, 1)
+        self.G_dn[self.L - 1] = self.G(L - 1, -1)
 
     def make_X(self, gamma_up, gamma_dn, l, i):
         X_up = 1 + gamma_up * (1 - self.G_up[l][i, i])
@@ -44,13 +44,15 @@ class AFQMC:
             gamma_dn = self.gamma(self.s[l][i], -1)
             X_up, X_dn = self.make_X(gamma_up, gamma_dn, l, i)
             # フリップ確率を計算する
-            p_flip = X_up * X_dn
+            # p_flip = X_up * X_dn
+            p_flip = X_up * X_dn / (1 + X_up * X_dn)
             # 0と1の間の乱数を生成し、フリップを試みる
             if np.random.rand() < p_flip:
                 # 補助場をフリップ
                 self.s[l, i] = -self.s[l, i]
                 # グリーン関数を更新
                 self.update_green_function(l, gamma_up, gamma_dn, X_up, X_dn, i)
+                # self.stabilize(l)
 
     def update_green_function(self, l, gamma_up, gamma_dn, X_up, X_dn, i):
         G_up_i = np.zeros((self.size, self.size))
@@ -79,35 +81,29 @@ class AFQMC:
 
     def matrix_A_2d(self):
         matrix = np.zeros((self.size, self.size))
-
         # 各サイト間のホッピングを設定
         for i in range(self.size):
             x, y = i % self.N, i // self.N  # x, y座標への変換
-
             # 右隣のサイトへのホッピング
             if x < self.N - 1:
                 matrix[i, i + 1] = 1
             else:
                 matrix[i, i + 1 - self.N] = 1  # 周期的境界条件
-
             # 左隣のサイトへのホッピング
             if x > 0:
                 matrix[i, i - 1] = 1
             else:
                 matrix[i, i - 1 + self.N] = 1  # 周期的境界条件
-
             # 上のサイトへのホッピング
             if y > 0:
                 matrix[i, i - self.N] = 1
             else:
                 matrix[i, i - self.N + self.size] = 1  # 周期的境界条件
-
             # 下のサイトへのホッピング
             if y < self.N - 1:
                 matrix[i, i + self.N] = 1
             else:
                 matrix[i, i + self.N - self.size] = 1  # 周期的境界条件
-
         return self.t * self.delta_tau * matrix
 
     def h(self, spin_sign, l):
@@ -125,11 +121,11 @@ class AFQMC:
         return scipy.linalg.expm(self.matrix_A_2d())
 
     def G(self, l, spin_sign):
-        I = np.eye(self.N)
+        I = np.eye(self.size)
         product = I
-        for l_prime in range(l, self.L):
+        for l_prime in range(l + 1, self.L):
             product = product @ self.exp_A @ self.make_exp_B(spin_sign, l_prime)
-        for l_prime in range(l):
+        for l_prime in range(l + 1):
             product = product @ self.exp_A @ self.make_exp_B(spin_sign, l_prime)
         return np.linalg.inv(I + product)
 
@@ -169,4 +165,10 @@ class AFQMC:
                     - self.sigma_sigma_bar(l, i, j, "up")
                     - self.sigma_sigma_bar(l, i, j, "dn")
                 )
-        return sum
+        return sum / self.L / self.N
+
+    def make_Szz_pipi(self):
+        Szz_pipi = 0
+        for ix in range(self.N):
+            Szz_pipi += (-1) ** ix * self.Szz(ix)
+        return Szz_pipi / self.N
