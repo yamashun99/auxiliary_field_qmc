@@ -53,7 +53,8 @@ def matrix_product_qdr_decomposition(matrices):
 
 
 class AFQMC:
-    def __init__(self, N, L, beta, t, U, mu, s, dimension):
+    def __init__(self, N, L, beta, t, U, mu, s, dimension, rank):
+        np.random.seed(rank)
         self.N = N
         self.L = L
         self.t = t
@@ -94,8 +95,8 @@ class AFQMC:
             gamma_dn = self.gamma(self.s[l][i], -1)
             X_up, X_dn = self.make_X(gamma_up, gamma_dn, l, i)
             # フリップ確率を計算する
-            # p_flip = X_up * X_dn
-            p_flip = X_up * X_dn / (1 + X_up * X_dn)
+            p_flip = X_up * X_dn
+            # p_flip = X_up * X_dn / (1 + X_up * X_dn)
             # 0と1の間の乱数を生成し、フリップを試みる
             if np.random.rand() < p_flip:
                 # 補助場をフリップ
@@ -108,15 +109,12 @@ class AFQMC:
         G_up_i = np.zeros((self.size, self.size))
         G_up_i[:, i] = self.G_up[l][:, i]
         G_up_i[i, i] -= 1
-        F_inv_up = np.eye(self.size) + gamma_up / X_up * G_up_i
+        self.G_up[l] = self.G_up[l] + gamma_up / X_up * G_up_i @ self.G_up[l]
 
         G_dn_i = np.zeros((self.size, self.size))
         G_dn_i[:, i] = self.G_dn[l][:, i]
         G_dn_i[i, i] -= 1
-        F_inv_dn = np.eye(self.size) + gamma_dn / X_dn * G_dn_i
-
-        self.G_up[l] = F_inv_up @ self.G_up[l]
-        self.G_dn[l] = F_inv_dn @ self.G_dn[l]
+        self.G_dn[l] = self.G_dn[l] + gamma_dn / X_dn * G_dn_i @ self.G_dn[l]
 
     def matrix_A(self):
         matrix = np.zeros((self.size, self.size))
@@ -270,14 +268,26 @@ class AFQMC:
                     - self.sigma_sigma_bar(l, i, j, "up")
                     - self.sigma_sigma_bar(l, i, j, "dn")
                 )
+        return sum / self.L / self.size
+
+    def make_Sxx_2d(self, delta_x, delta_y):
+        sum = 0
+        for l in range(self.L):
+            for i in range(self.size):
+                x, y = self.i2xy(i)
+                x_delta_x, y_delta_y = (x + delta_x) % self.N, (y + delta_y) % self.N
+                j = self.xy2i(x_delta_x, y_delta_y)
+                sum += -self.sigma_sigma_bar(l, i, j, "up") - self.sigma_sigma_bar(
+                    l, i, j, "dn"
+                )
         return sum / self.L / self.N
 
-    def make_Szz_pipi(self, Szz):
-        Szz_pipi = 0
+    def make_S_pipi(self, SS):
+        SS_pipi = 0
         for i in range(self.N):
             for j in range(self.N):
-                Szz_pipi += Szz[i, j] * (-1) ** (i + j)
-        return Szz_pipi / self.N**2
+                SS_pipi += SS[i, j] * (-1) ** (i + j)
+        return SS_pipi
 
     def make_Szz_pi(self, Szz):
         Szz_pi = 0
