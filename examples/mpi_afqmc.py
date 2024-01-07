@@ -18,7 +18,6 @@ def get_SzSz(p, n_stab, n_mc, n_thermal):
     SzSz = np.zeros((p["N"], p["N"]))
     afqmc = AFQMC(**p)
     for i_mc in range(n_mc):
-        print("beta:", p["beta"], "i_mc:", i_mc, "rank:", rank)
         for l in reversed(range(p["L"])):
             if l % n_stab == 0:
                 afqmc.stabilize(l)
@@ -46,6 +45,8 @@ p["dimension"] = 2
 p["random_seed"] = 123 * rank + 567
 
 for beta in range(6):
+    if rank == 0:
+        print(f"beta={beta}")
     p["beta"] = beta
     SzSz = get_SzSz(p, n_stab=1, n_mc=100, n_thermal=3)
 
