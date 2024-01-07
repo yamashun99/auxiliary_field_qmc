@@ -1,67 +1,18 @@
+from .utils import qr_dr_decomposition
 import numpy as np
 import scipy.linalg
 
 
-def qr_dr_decomposition(A):
-    # QR分解
-    Q, R = np.linalg.qr(A)
-
-    # D行列（Rの対角成分から構成）
-    D = np.diag(np.diag(R))
-
-    # R'行列（RをDで割る）
-    R_prime = np.diag(1 / np.diag(D)) @ R
-
-    return Q, D, R_prime
-
-
-def qr_dr_decomposition_sorted(A):
-    # QR分解
-    Q, R = np.linalg.qr(A)
-
-    # Rの対角成分の絶対値に基づいてソートするためのインデックスを取得
-    abs_diag_indices = np.argsort(-np.abs(np.diag(R)))
-
-    # RとQをソートする
-    R_sorted = R[:, abs_diag_indices]
-    Q_sorted = Q[:, abs_diag_indices]
-
-    # D行列（ソートされたRの対角成分から構成）
-    D = np.diag(np.diag(R_sorted))
-
-    # R'行列（ソートされたRをDで割る）
-    R_prime = np.diag(1 / np.diag(D)) @ R_sorted
-
-    return Q_sorted, D, R_prime
-
-
-def matrix_product_qdr_decomposition(matrices):
-    # 最後の行列から始めてQDR分解
-    Q, D, R = qr_dr_decomposition_sorted(matrices[-1])
-
-    # 残りの行列に対して逆順にループ
-    for A in reversed(matrices[:-1]):
-        # 現在のQとDの積を計算
-        QD = np.dot(Q, D)
-        # AとQDの積を取り、QDR分解
-        Q, D_temp, R_temp = qr_dr_decomposition_sorted(np.dot(A, QD))
-        # Rを更新
-        R = np.dot(R_temp, R)
-        D = D_temp
-
-    return Q, D, R
-
-
 class AFQMC:
-    def __init__(self, N, L, beta, t, U, mu, s, dimension, rank):
-        np.random.seed(rank)
+    def __init__(self, N, L, beta, t, U, mu, dimension, random_seed):
+        np.random.seed(random_seed)
         self.N = N
         self.L = L
         self.t = t
         self.U = U
         self.delta_tau = beta / L
         self.mu = mu
-        self.s = s
+        self.s = np.random.choice([-1, 1], size=(L, N**dimension))
         self.a = np.arccosh(np.exp(self.U * self.delta_tau / 2)) / 2
         self.size = N**dimension
         if dimension == 1:
@@ -192,25 +143,6 @@ class AFQMC:
         R = R_prime @ R0
         return np.linalg.inv(R) @ np.linalg.inv(D) @ np.linalg.inv(Q)
 
-    #    def make_G_QR(self, l, spin_sign):
-    #        I = np.eye(self.size)
-    #        matrices0 = [
-    #            self.exp_A @ self.make_exp_B(spin_sign, l_prime)
-    #            for l_prime in range(l + 1, self.L)
-    #        ]
-    #        matrices1 = [
-    #            self.exp_A @ self.make_exp_B(spin_sign, l_prime) for l_prime in range(l + 1)
-    #        ]
-    #        if len(matrices0) == 0:
-    #            Q0, D0, R0 = I, I, I
-    #        else:
-    #            Q0, D0, R0 = matrix_product_qdr_decomposition(matrices0)
-    #        if len(matrices1) == 0:
-    #            Q1, D1, R1 = I, I, I
-    #        else:
-    #            Q1, D1, R1 = matrix_product_qdr_decomposition(matrices1)
-    #        return np.linalg.inv(I + Q0 @ D0 @ R0 @ Q1 @ D1 @ R1)
-
     def gamma(self, s_li, spin_sign):
         return np.exp(-4 * self.a * spin_sign * s_li) - 1
 
@@ -236,7 +168,7 @@ class AFQMC:
         sum += (self.kronecker_delta(i, j) - G_sigma[l][j, i]) * G_sigma[l][i, j]
         return sum
 
-    def make_Szz_1d(self, delta_x):
+    def make_SzSz_1d(self, delta_x):
         sum = 0
         for l in range(self.L):
             for i in range(self.N):
@@ -255,7 +187,7 @@ class AFQMC:
     def xy2i(self, x, y):
         return x + y * self.N
 
-    def make_Szz_2d(self, delta_x, delta_y):
+    def make_SzSz_2d(self, delta_x, delta_y):
         sum = 0
         for l in range(self.L):
             for i in range(self.size):
@@ -269,28 +201,3 @@ class AFQMC:
                     - self.sigma_sigma_bar(l, i, j, "dn")
                 )
         return sum / self.L / self.size
-
-    def make_Sxx_2d(self, delta_x, delta_y):
-        sum = 0
-        for l in range(self.L):
-            for i in range(self.size):
-                x, y = self.i2xy(i)
-                x_delta_x, y_delta_y = (x + delta_x) % self.N, (y + delta_y) % self.N
-                j = self.xy2i(x_delta_x, y_delta_y)
-                sum += -self.sigma_sigma_bar(l, i, j, "up") - self.sigma_sigma_bar(
-                    l, i, j, "dn"
-                )
-        return sum / self.L / self.N
-
-    def make_S_pipi(self, SS):
-        SS_pipi = 0
-        for i in range(self.N):
-            for j in range(self.N):
-                SS_pipi += SS[i, j] * (-1) ** (i + j)
-        return SS_pipi
-
-    def make_Szz_pi(self, Szz):
-        Szz_pi = 0
-        for i in range(self.N):
-            Szz_pi += Szz[i] * (-1) ** (i)
-        return Szz_pi / self.N
